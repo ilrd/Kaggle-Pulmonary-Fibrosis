@@ -3,6 +3,7 @@ from tensorflow import keras
 import pandas as pd
 import os
 
+
 class DcmDataGenerator(keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
@@ -62,7 +63,7 @@ class DcmDataGenerator(keras.utils.Sequence):
         :return: batch of images
         """
         # Initialization
-        X = np.empty((self.batch_size, *self.dim))
+        X = np.empty((self.batch_size, *self.dim), dtype=np.float32)
 
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
@@ -94,13 +95,13 @@ class CsvDataGenerator(keras.utils.Sequence):
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
 
-    def __init__(self, csv_path, to_fit=True, batch_size=1, normalize=True):
+    def __init__(self, csv_path, to_fit=True, batch_size=1, to_normalize=True):
         """Initialization
         :param csv_path: path to csv file location
         :param to_fit: True to return X and y, False to return X only
         :param batch_size: batch size at each iteration
         """
-        self.normalize = normalize
+        self.to_normalize = to_normalize
         self.list_IDs = os.listdir(csv_path[:-4])
         self.csv_path = csv_path
         self.to_fit = to_fit
@@ -151,12 +152,15 @@ class CsvDataGenerator(keras.utils.Sequence):
         :return: batch of images
         """
         # Initialization
-        X = np.empty((self.batch_size, 7))
+        X = np.empty((self.batch_size, 7), dtype=np.float32)
 
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
             # Store sample
             X[i,] = self._load_X(self.csv_path, ID)
+
+        if self.to_normalize:
+            X = (X - (-5)) / (4916 - (-5))
 
         return X
 
@@ -170,21 +174,23 @@ class CsvDataGenerator(keras.utils.Sequence):
         patient.reset_index(inplace=True)
         X_columns = ['Weeks', 'FVC', 'Age', 'Ex-smoker', 'Never smoked', 'Currently smokes', 'Sex_n']
 
-        X_patient = patient.loc[0, X_columns]
+        X_patient = patient.loc[0, X_columns].to_numpy()
 
-        return np.array(X_patient)
+        return X_patient
 
     def _generate_y(self, list_IDs_temp):
         """Generates data containing batch_size masks
         :param list_IDs_temp: list of label ids to load
         :return: batch if masks
         """
-        y = np.empty((self.batch_size, 146, 2), dtype=int)
+        y = np.empty((self.batch_size, 146, 2), dtype=np.float32)
 
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
             # Store sample
             y[i,] = self._load_y(self.csv_path, ID)
+
+
 
         return y
 
@@ -199,14 +205,17 @@ class CsvDataGenerator(keras.utils.Sequence):
         patient.reset_index(inplace=True)
         weeks_FVC = patient.loc[1:, ['Weeks', 'FVC']]
         weeks_FVC = self.pad_y(weeks_FVC)
-        return weeks_FVC.values
+        weeks_FVC.to_numpy()
+        return weeks_FVC.to_numpy()
 
     def pad_y(self, csv_df):
         csv_df['isRecord'] = 1
         for i in range(-12, 134):
             if not np.any(csv_df['Weeks'] == i):
-                csv_df = csv_df.append({'Weeks': i, 'FVC': 0, 'isRecord':0}, ignore_index=True)
+                csv_df = csv_df.append({'Weeks': i, 'FVC': 0, 'isRecord': 0}, ignore_index=True)
 
         csv_df.sort_values('Weeks', inplace=True)
         csv_df.drop(columns='Weeks', inplace=True)
+        if self.to_normalize:
+            csv_df.loc[:,'FVC'] = (csv_df.loc[:,'FVC'] - (-5)) / (4916 - (-5))
         return csv_df

@@ -24,30 +24,52 @@ tf.config.experimental.set_memory_growth(gpus[0], True)
 # Global variables
 CSV_PATH = '../../data/processed/train.csv'
 
+
 # ==================================#
+# Creating the model
+class MyModel(Model):
+    def __init__(self):
+        super(MyModel, self).__init__()
 
-dcm_inp = Input(shape=(512, 512, 40))
-dcm_hid = Conv2D(32, 3, activation='relu', padding='same')(dcm_inp)
-dcm_hid = MaxPool2D(2, 2)(dcm_hid)
-# dcm_hid = Conv2D(32, 3, activation='relu', padding='same')(dcm_hid)
-dcm_hid = MaxPool2D(2, 2)(dcm_hid)
-# dcm_hid = Conv2D(64, 3, activation='relu', padding='same')(dcm_hid)
-dcm_hid = MaxPool2D(2, 2)(dcm_hid)
-dcm_hid = Flatten()(dcm_hid)
-dcm_hid = Dense(1, activation='relu')(dcm_hid)  # 256
+        # self.csv_inp = Input(shape=(7,))
+        self.csv_hid1 = Dense(64, activation='relu')
 
-csv_inp = Input(shape=(7,))
-csv_hid = Dense(128, activation='selu')(csv_inp)
+        # self.dcm_inp = Input(shape=(512, 512, 40))
+        self.dcm_hid1 = Conv2D(32, 3, activation='relu', padding='same')
+        self.dcm_hid2 = MaxPool2D(2, 2)
+        # self.dcm_hid = Conv2D(32, 3, activation='relu', padding='same')
+        self.dcm_hid3 = MaxPool2D(2, 2)
+        # self.dcm_hid = Conv2D(64, 3, activation='relu', padding='same')
+        self.dcm_hid4 = MaxPool2D(2, 2)
+        self.dcm_hid5 = Flatten()
+        self.dcm_hid6 = Dense(1, activation='relu')
 
-conc = Concatenate()([csv_hid, dcm_hid])
-conc_dense = Dense(1024, activation='selu')(conc)  # 128
-# conc_dense = Dense(512, activation='selu')(conc_dense)  # 128
-out = Dense(146)(conc_dense)
+        self.conc = Concatenate()
+        self.conc_dense1 = Dense(128, activation='relu')
+        self.conc_dense2 = Dense(64, activation='relu')
+        self.out = Dense(146)
 
-# out = Reshape((8, 2))(conc_dense)
+    def call(self, inputs, **kwargs):
+        csv_inp, dcm_inp = inputs
 
-inputs = [csv_inp, dcm_inp]
-model = Model(inputs, out)
+        csv_x = self.csv_hid1(csv_inp)
+
+        dcm_x = self.dcm_hid1(dcm_inp)
+        dcm_x = self.dcm_hid2(dcm_x)
+        # dcm_x = self.dcm_hid(dcm_x)
+        dcm_x = self.dcm_hid3(dcm_x)
+        # dcm_x = self.dcm_hid(dcm_x)
+        dcm_x = self.dcm_hid4(dcm_x)
+        dcm_x = self.dcm_hid5(dcm_x)
+        dcm_x = self.dcm_hid6(dcm_x)
+
+        conc_x = self.conc([csv_x, dcm_x])
+        conc_x = self.conc_dense1(conc_x)
+        conc_x = self.conc_dense2(conc_x)
+        return self.out(conc_x)
+
+
+model = MyModel()
 
 
 # ==================================#
@@ -61,9 +83,18 @@ def loss_wrapper(patient_record):  # patient_records - 146 len 1D array with 1s 
         # ypred_np = (patient_record * y_pred).numpy()
         # y_np = y_true.numpy()
         mse = K.mean(K.square(y_true - patient_record * y_pred), axis=-1)
-        min_max_penalizer = K.square(K.max(y_true) - K.max(y_pred)) + K.square(K.min(y_true) - K.min(y_pred))
+        # ==#
+        y_pred_sleft = K.concatenate((K.constant([[0]]), y_pred))
+        y_pred_sright = K.concatenate((y_pred, K.constant([[0]])))
+        y_perc = (K.abs(y_pred_sright / y_pred_sleft - 1)).numpy()[0][1:-1]
+        y_perc[y_perc > 1] = 1
+        y_perc[0 > y_perc] = 0
+        # ==#
+        neighbor_difference_penalizer = K.mean(
+            K.variable(np.array([K.exp(K.variable(np.array([(i - 1.1) * 10]))) for i in y_perc])))
         print(K.mean(y_pred).numpy(), y_pred.numpy().max(), y_pred.numpy().min())
-        cost = mse + min_max_penalizer
+        cost = mse + neighbor_difference_penalizer
+        # cost = mse
         return cost
 
     return dynamic_loss
@@ -86,7 +117,7 @@ def merge_datagens(csv_gen, dcm_gen):
 
 
 def create_datagen(batch_size=1):
-    csv_datagen = CsvDataGenerator(CSV_PATH, normalize=True, batch_size=batch_size)
+    csv_datagen = CsvDataGenerator(CSV_PATH, to_normalize=True, batch_size=batch_size)
     dcm_datagen = DcmDataGenerator('../../data/processed/train', batch_size=batch_size)
 
     merged_gen = merge_datagens(csv_datagen, dcm_datagen)
@@ -100,7 +131,7 @@ def create_datagen(batch_size=1):
 # have to define manually a dict to store all epochs scores
 
 
-def dynamic_loss_training(model, batch_size=1, num_of_patients=52):
+def dynamic_loss_training(model, batch_size=1, epochs=5, num_of_patients=52):
     datagen = create_datagen(batch_size=batch_size)
 
     history = {}
@@ -110,21 +141,28 @@ def dynamic_loss_training(model, batch_size=1, num_of_patients=52):
     history['history']['batch_loss'] = []
     history['history']['val_batch_loss'] = []
 
-    # first compiling with mse
+    # batch_X, batch_y, patient_record = next(datagen)
 
     # define number of iterations in training and test
     steps_per_epoch = round(num_of_patients / batch_size)
     # test_iter = round(testX.shape[0] / batch_size)
-    for epoch in range(1, 2):
+    for epoch in range(1, epochs + 1):
 
         # train iterations
         loss = 0
         for current_batch in range(steps_per_epoch):
             batch_X, batch_y, patient_record = next(datagen)
+            if epoch < 3:
+                model.compile(loss=loss_wrapper(patient_record), optimizer=keras.optimizers.Adam(lr=0.01),
+                              metrics=['mae'], run_eagerly=True)
 
-            model.compile(loss=loss_wrapper(patient_record), optimizer=keras.optimizers.RMSprop(lr=0.1 / 10 ** epoch),
-                          metrics=['mae'], run_eagerly=True)
+            if epoch == 3:
+                model.compile(loss=loss_wrapper(patient_record), optimizer=keras.optimizers.Adam(lr=0.001),
+                              metrics=['mae'], run_eagerly=True)
 
+            if epoch >= 4:
+                model.compile(loss=loss_wrapper(patient_record), optimizer=keras.optimizers.Adam(lr=0.0001),
+                              metrics=['mae'], run_eagerly=True)
             loss_, mae = model.train_on_batch(batch_X, batch_y)
             print(f"Epoch {epoch}, batch {current_batch}:\n"
                   f"Epoch avg loss - {loss / (current_batch + 1)}, batch loss - {loss_}, mae - {mae}")
@@ -153,7 +191,10 @@ def dynamic_loss_training(model, batch_size=1, num_of_patients=52):
 
 # ==================================#
 # Testing
-model, history = dynamic_loss_training(model, 1)
+model, history = dynamic_loss_training(model, 1, 4)
+plt.figure(figsize=(14, 14))
+plt.plot(history['history']["batch_loss"][:])
+
 fit_gen = create_datagen(1)
 [csv_X, dcm_X], y, dmat = next(fit_gen)
 
@@ -163,10 +204,13 @@ print(np.mean(y_pred))
 # plt.plot(y_pred[0])
 # plt.plot(y[0])
 
-plt.figure(figsize=(14, 14))
-plt.plot(history['history']["batch_loss"][150:])
 
 plt.figure(figsize=(14, 14))
-plt.plot(y_pred[0])
+plt.plot((y_pred)[0])
+
+plt.figure(figsize=(14, 14))
+plt.plot((y_pred * dmat)[0])
 plt.plot(y[0])
 plt.show()
+
+# 0.0004509228480436342
