@@ -47,7 +47,7 @@ def show_window(ct_img, w=None, m=None):
     plt.imshow(ct_img, plt.cm.bone)
 
 
-def get_dcm_uh(dir_path, num=3, save_folder=None, dtype='array', max_dcms=120):
+def get_dcm_uh(dir_path, num=3, save_folder=None, dtype=None, max_dcms=120):
     dcm_img_arrays = defaultdict(list)
     patient_ids = os.listdir(dir_path)
 
@@ -57,49 +57,54 @@ def get_dcm_uh(dir_path, num=3, save_folder=None, dtype='array', max_dcms=120):
     for i, patient_id in enumerate(patient_ids[:num]):
         global nums_of_dcms
 
-        if nums_of_dcms[i] < max_dcms:
-            try:
-                patient_path = os.path.join(dir_path, patient_id)
-                for j, dcm_img_name in enumerate(os.listdir(patient_path), start=1):
-                    dcm_img_path = os.path.join(patient_path, dcm_img_name)
-                    dcm_img = dicom.read_file(dcm_img_path)
-                    dcm_img_array = dcm_img.pixel_array
-                    if dcm_img_array.shape[0] != dcm_img_array.shape[1]:
-                        dcm_img_array = crop_image(dcm_img_array)
-                        dcm_img_array = dcm_img_array + 1024
-                        dcm_img_array[dcm_img_array == np.min(dcm_img_array)] = 0
-                        dcm_img_array = dcm_img_array - 1024
-                    else:
-                        dcm_img_array[dcm_img_array < -1024] = -1024
-
-                    slope = int(dcm_img.RescaleSlope)
-                    intercept = int(dcm_img.RescaleIntercept)
-                    dcm_img_array = dcm_img_array * slope + intercept
+        try:
+            patient_path = os.path.join(dir_path, patient_id)
+            for j, dcm_img_name in enumerate(os.listdir(patient_path)[:max_dcms], start=1):
+                dcm_img_path = os.path.join(patient_path, dcm_img_name)
+                dcm_img = dicom.read_file(dcm_img_path)
+                dcm_img_array = dcm_img.pixel_array
+                if dcm_img_array.shape[0] != dcm_img_array.shape[1]:
+                    dcm_img_array = crop_image(dcm_img_array)
+                    dcm_img_array = dcm_img_array + 1024
+                    dcm_img_array[dcm_img_array == np.min(dcm_img_array)] = 0
+                    dcm_img_array = dcm_img_array - 1024
+                else:
                     dcm_img_array[dcm_img_array < -1024] = -1024
-                    if dtype == 'array':
-                        dcm_img_arrays[patient_id].append(dcm_img_array)
-                    elif dtype == 'dcm':
-                        dcm_img.pixel_array = dcm_img_array
-                        dcm_img_arrays[patient_id].append(dcm_img)
 
-                    if save_folder:
+                slope = int(dcm_img.RescaleSlope)
+                intercept = int(dcm_img.RescaleIntercept)
+                dcm_img_array = dcm_img_array * slope + intercept
+                dcm_img_array[dcm_img_array < -1024] = -1024
+                if dtype == 'array':
+                    dcm_img_arrays[patient_id].append(dcm_img_array)
+                elif dtype == 'dcm':
+                    dcm_img.pixel_array = dcm_img_array
+                    dcm_img_arrays[patient_id].append(dcm_img)
+                elif dtype is None:
+                    pass
 
-                        if not os.path.isdir(save_folder):
-                            os.mkdir(save_folder)
+                if save_folder:
+                    if not os.path.isdir(save_folder):
+                        os.mkdir(save_folder)
+                    if 'clustering' in save_folder:
+
+                        new_dcm_img_path = os.path.join(save_folder, f'{i}-{j}.npy')
+                    else:
+
                         patient_folder = os.path.join(save_folder, patient_id)
                         if not os.path.isdir(patient_folder):
                             os.mkdir(patient_folder)
                         new_dcm_img_path = os.path.join(patient_folder, f'{j}.npy')
 
-                        dcm_img_array = Image.fromarray(dcm_img_array)
-                        size = (512, 512)
-                        dcm_img_array = dcm_img_array.resize(size)
-                        dcm_img_array = np.array(dcm_img_array)
+                    dcm_img_array = Image.fromarray(dcm_img_array)
+                    size = (512, 512)
+                    dcm_img_array = dcm_img_array.resize(size)
+                    dcm_img_array = np.array(dcm_img_array)
 
-                        np.save(new_dcm_img_path, dcm_img_array)
+                    np.save(new_dcm_img_path, dcm_img_array)
 
-            except RuntimeError as err:
-                print(f'Runtime error on patient {patient_id}:\n{err}')
+        except RuntimeError as err:
+            print(f'Runtime error on patient {patient_id}:\n{err}')
 
         print(f'Patient {patient_id} - done. {num - i} patients left.')
     return dcm_img_arrays
@@ -117,9 +122,9 @@ for patient_dir in os.listdir(absolute_dicom_train_path):
     nums_of_dcms.append(num_of_dcms)
 # ==================================#
 # Get data in HUs + save
-save_folder_path = os.path.join(project_dir, 'data/processed/train')
-
-data = get_dcm_uh(absolute_dicom_train_path, num=3, dtype='dcm')
+# save_folder_path = os.path.join(project_dir, 'data/processed/train')
+save_folder_path = os.path.join(project_dir, 'data/clustering/train')
+get_dcm_uh(absolute_dicom_train_path, save_folder=save_folder_path, num=200, dtype=None, max_dcms=200)
 
 
 # ==================================#
@@ -291,11 +296,10 @@ def plot_by_dcmattr(attr_name, num, dcm_data):
         if subplots_num > 49:
             break
 
-
 # plot_by_dcmattr('B60f', data)
 # ==================================#
-plt.figure()
-for d_img in list(data.values())[0]:
-    d_array = d_img.pixel_array
-    plt.imshow(d_array, plt.cm.bone)
-    plt.pause(0.3)
+# plt.figure()
+# for d_img in list(data.values())[0]:
+#     d_array = d_img.pixel_array
+#     plt.imshow(d_array, plt.cm.bone)
+#     plt.pause(0.3)

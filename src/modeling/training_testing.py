@@ -8,8 +8,8 @@ import os
 import tensorflow.keras.backend as K
 from datagens import create_datagen
 
-gpus = tf.config.experimental.list_physical_devices("GPU")
-tf.config.experimental.set_memory_growth(gpus[0], True)
+# gpus = tf.config.experimental.list_physical_devices("GPU")
+# tf.config.experimental.set_memory_growth(gpus[0], True)
 
 # To debug:
 # tf.debugging.set_log_device_placement(True)
@@ -45,101 +45,124 @@ def loss_wrapper(is_patient_record):  # is_patient_record - 146 len 1D array wit
 
 # ==================================#
 # GradientTape
-@tf.function
-def my_train_step(model, inputs, outputs, is_patient_record, optimizer):
-    y_true = outputs
-    with tf.GradientTape() as tape:
-        y_pred = model(inputs, training=True)
-        loss = loss_wrapper(is_patient_record)(y_true, y_pred)
-    grads = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+def train_step_wrapper(optimizer):
+    @tf.function
+    def my_train_step(model, inputs, outputs, is_patient_record):
+        y_true = outputs
+        with tf.GradientTape() as tape:
+            y_pred = model(inputs, training=True)
+            loss = loss_wrapper(is_patient_record)(y_true, y_pred)
+        grads = tape.gradient(loss, model.trainable_variables)
+        optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-    return loss
-    # train_loss(loss)
+        return loss
 
-
-# ==================================#
-# Training with dinamic loss
-def dynamic_loss_training(model, epochs=5):
-    datagen = create_datagen()
-
-    history = {}
-    history['loss'] = []
-    history['val_loss'] = []
-    history['batch_loss'] = []
-    history['val_batch_loss'] = []
-
-    steps_per_epoch = num_of_patients
-
-    for epoch in range(1, epochs + 1):
-
-        loss = 0
-        for current_batch in range(steps_per_epoch):
-            batch_X, batch_y, is_patient_record = next(datagen)
-            if epoch < 2:
-                model.compile(loss=loss_wrapper(is_patient_record), optimizer=keras.optimizers.Adam(lr=0.1),
-                              metrics=['mae'], run_eagerly=True)
-
-            if epoch == 2:
-                model.compile(loss=loss_wrapper(is_patient_record), optimizer=keras.optimizers.Adam(lr=0.001),
-                              metrics=['mae'], run_eagerly=True)
-
-            if epoch >= 3:
-                model.compile(loss=loss_wrapper(is_patient_record), optimizer=keras.optimizers.Adam(lr=0.0001),
-                              metrics=['mae'], run_eagerly=True)
-            loss_, mae = model.train_on_batch(batch_X, batch_y)
-            print(f"Epoch {epoch}, step {current_batch}:\n"
-                  f"Epoch avg loss - {loss / (current_batch + 1)}, batch loss - {loss_}, mae - {mae}")
-
-            history['batch_loss'].append(loss_)
-
-            loss += loss_
-
-        history['loss'].append(loss / steps_per_epoch)
-
-    return history
+    return my_train_step
 
 
 # ==================================#
 # Training with GradientTape
-def train(model, epochs):
-    datagen = create_datagen()
+def train(model, epochs=5, debug=False, shuffle=True):
+    datagen = create_datagen(shuffle)
 
     history = {}
     history['loss'] = []
     history['val_loss'] = []
     history['batch_loss'] = []
     history['val_batch_loss'] = []
+
     steps_per_epoch = num_of_patients
 
     for epoch in range(1, epochs + 1):
-        loss = 0
-        # if epoch == 1:
-        #     optimizer = keras.optimizers.Adam(lr=0.1)
-        # else:
-        #     optimizer = keras.optimizers.Adam(lr=0.001)
-        optimizer = keras.optimizers.Adam(lr=0.01)
-        for current_batch in range(steps_per_epoch):
-            batch_X, batch_y, is_patient_record = next(datagen)
+        if not debug:
+            loss = 0
+            if epoch == 1:
+                optimizer = keras.optimizers.Adam(lr=0.001)
 
-            loss_ = my_train_step(model, batch_X, batch_y, is_patient_record, optimizer=optimizer)
-            loss += loss_
-            history['batch_loss'].append(loss_)
-            print(f"Epoch {epoch}, step {current_batch}:\nLoss: {loss_}, Avg epoch Loss: {loss / (current_batch + 1)}")
+            elif 5 > epoch >= 2:
+                optimizer = keras.optimizers.Adam(lr=0.0001)
 
-        history['loss'].append(loss / steps_per_epoch)
+            elif 8 > epoch >= 5:
+                optimizer = keras.optimizers.Adam(lr=0.00001)
+
+            else:
+                optimizer = keras.optimizers.Adam(lr=0.000001)
+
+            train_step = train_step_wrapper(optimizer=optimizer)
+
+            for current_batch in range(steps_per_epoch):
+                batch_X, batch_y, is_patient_record = next(datagen)
+                # is_patient_record = np.ones((1, 146))
+
+                begin = perf_counter()
+                loss_ = float(train_step(model, batch_X, batch_y, is_patient_record))
+                # loss_ = model.train_on_batch(batch_X, batch_y)
+
+                end = perf_counter()
+
+                loss += loss_
+                print(f"Epoch {epoch}, step {current_batch}:\n"
+                      f"Epoch avg loss: {loss / (current_batch + 1)}, batch loss: {loss_}")
+
+                history['batch_loss'].append(loss_)
+
+                print(f'batch was processed in {end - begin} seconds\n')
+
+            history['loss'].append(loss / steps_per_epoch)
+
+        else:
+            loss = 0
+
+
+            for current_batch in range(steps_per_epoch):
+                batch_X, batch_y, is_patient_record = next(datagen)
+                # is_patient_record = np.ones((1, 146))
+
+                if epoch == 1:
+                    optimizer = keras.optimizers.Adam(lr=0.001)
+                    model.compile(optimizer=optimizer, loss=loss_wrapper(is_patient_record), run_eagerly=True)
+
+                elif 5 > epoch >= 2:
+                    optimizer = keras.optimizers.Adam(lr=0.001)
+                    model.compile(optimizer=optimizer, loss=loss_wrapper(is_patient_record), run_eagerly=True)
+
+
+                elif 8 > epoch >= 5:
+                    optimizer = keras.optimizers.Adam(lr=0.0001)
+                    model.compile(optimizer=optimizer, loss=loss_wrapper(is_patient_record), run_eagerly=True)
+
+
+                else:
+                    optimizer = keras.optimizers.Adam(lr=0.00001)
+                    model.compile(optimizer=optimizer, loss=loss_wrapper(is_patient_record), run_eagerly=True)
+
+
+
+                begin = perf_counter()
+                loss_ = model.train_on_batch(batch_X, batch_y)
+
+                end = perf_counter()
+
+                loss += loss_
+                print(f"Epoch {epoch}, step {current_batch}:\n"
+                      f"Epoch avg loss: {loss / (current_batch + 1)}, batch loss: {loss_}")
+
+                history['batch_loss'].append(loss_)
+
+                print(f'batch was processed in {end - begin} seconds\n')
+
+            history['loss'].append(loss / steps_per_epoch)
 
     return history
 
 
 # ==================================#
 # Testing
-# fit_history = dynamic_loss_training(model, 2)
-fit_history = train(model, 2)
-#
+fit_history = train(model, 3, False, True)
+
 # plt.figure(figsize=(14, 14))
 # plt.title('Batch loss')
-# plt.plot(fit_history["batch_loss"][:])
+# plt.plot(fit_history["batch_loss"][5:])
 # #
 # fit_gen = create_datagen(1)
 # [csv_X, dcm_X], y, dmat = next(fit_gen)
