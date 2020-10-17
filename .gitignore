@@ -1,3 +1,10 @@
 # Datasets
 data/
+
 .idea/
+
+# Logs
+src/modeling/logs/
+src/modeling/tmp/
+notebooks/.ipynb_checkpoints/
+src/modeling/__pycache__/
