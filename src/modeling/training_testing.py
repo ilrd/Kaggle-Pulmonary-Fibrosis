@@ -8,8 +8,8 @@ import os
 import tensorflow.keras.backend as K
 from datagens import create_datagen
 
-# gpus = tf.config.experimental.list_physical_devices("GPU")
-# tf.config.experimental.set_memory_growth(gpus[0], True)
+gpus = tf.config.experimental.list_physical_devices("GPU")
+tf.config.experimental.set_memory_growth(gpus[0], True)
 
 # To debug:
 # tf.debugging.set_log_device_placement(True)
@@ -22,7 +22,7 @@ num_of_patients = len(os.listdir(DCM_PATH))
 
 # ==================================#
 # Importing model class
-from model import DcmCsvModel
+from models import DcmCsvModel
 
 model = DcmCsvModel()
 
@@ -160,24 +160,24 @@ def train(model, epochs=5, debug=False, shuffle=True):
 # Testing
 fit_history = train(model, 3, False, True)
 
-# plt.figure(figsize=(14, 14))
-# plt.title('Batch loss')
-# plt.plot(fit_history["batch_loss"][5:])
-# #
-# fit_gen = create_datagen(1)
-# [csv_X, dcm_X], y, dmat = next(fit_gen)
+plt.figure(figsize=(14, 14))
+plt.title('Batch loss')
+plt.plot(fit_history["batch_loss"][:])
 #
-# y_pred = model.predict([csv_X, dcm_X], steps=1)
-# print(np.mean(y_pred))
-#
-# plt.figure(figsize=(14, 14))
-# plt.title('y_pred on first patient')
-# plt.plot(y_pred[0])
-#
-# plt.figure(figsize=(14, 14))
-# plt.title('y_pred vs y_true')
-# plt.plot((y_pred * dmat)[0], label='y_pred')
-# plt.plot(y[0], label='y_true')
-# plt.show()
+fit_gen = create_datagen(1)
+[csv_X, dcm_X, dcm_X_num], y, dmat = next(fit_gen)
+
+y_pred = model.predict([csv_X, dcm_X, dcm_X_num], steps=1)
+
+
+plt.figure(figsize=(14, 14))
+plt.title('y_pred on first patient')
+plt.plot(y_pred[0])
+
+plt.figure(figsize=(14, 14))
+plt.title('y_pred vs y_true')
+plt.plot((y_pred * dmat)[0], label='y_pred')
+plt.plot(y[0], label='y_true')
+plt.show()
 
 # 0.0004509228480436342

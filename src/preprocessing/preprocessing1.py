@@ -1,15 +1,12 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-from pandas.plotting import scatter_matrix
 import pydicom as dicom
 import os
 from collections import defaultdict
-from time import perf_counter, sleep
-import gc
 from PIL import Image
-import PIL
+import math
+import shutil
 
 # Plan
 '''
@@ -47,22 +44,35 @@ def show_window(ct_img, w=None, m=None):
     plt.imshow(ct_img, plt.cm.bone)
 
 
-def get_dcm_uh(dir_path, num=3, save_folder=None, dtype=None, max_dcms=120):
+def get_dcm_uh(patients_dir, num=3, save_folder=None, return_type=None):
     dcm_img_arrays = defaultdict(list)
-    patient_ids = os.listdir(dir_path)
+    patient_ids = os.listdir(patients_dir)
 
     if num > len(patient_ids):
         num = len(patient_ids)
 
     for i, patient_id in enumerate(patient_ids[:num]):
-        global nums_of_dcms
-
         try:
-            patient_path = os.path.join(dir_path, patient_id)
-            for j, dcm_img_name in enumerate(os.listdir(patient_path)[:max_dcms], start=1):
-                dcm_img_path = os.path.join(patient_path, dcm_img_name)
+            patient_path = os.path.join(patients_dir, patient_id)
+
+            dcm_names = np.array([dcm_name[:-4] for dcm_name in os.listdir(patient_path)], dtype=int)
+            dcm_names = sorted(list(dcm_names))
+
+            # Getting 15 evenly spaced dcms from the dcm_names
+            len_dcm_names = len(dcm_names)
+            desired_len = 15
+            dcm_names = dcm_names[0::max(1, math.floor(len_dcm_names / desired_len))]
+            while len(dcm_names) > 15:
+                del dcm_names[-1]
+            while len(dcm_names) < 15:
+                dcm_names.append(dcm_names[-1])
+
+            patient_dcm_paths = [f'{patients_dir}/{patient_id}/{dcm_num}.dcm' for dcm_num in dcm_names]
+
+            for j, dcm_img_path in enumerate(patient_dcm_paths, start=1):
                 dcm_img = dicom.read_file(dcm_img_path)
                 dcm_img_array = dcm_img.pixel_array
+
                 if dcm_img_array.shape[0] != dcm_img_array.shape[1]:
                     dcm_img_array = crop_image(dcm_img_array)
                     dcm_img_array = dcm_img_array + 1024
@@ -75,25 +85,28 @@ def get_dcm_uh(dir_path, num=3, save_folder=None, dtype=None, max_dcms=120):
                 intercept = int(dcm_img.RescaleIntercept)
                 dcm_img_array = dcm_img_array * slope + intercept
                 dcm_img_array[dcm_img_array < -1024] = -1024
-                if dtype == 'array':
+
+                # Deciding the way to store and return the dcms
+                if return_type == 'array':
                     dcm_img_arrays[patient_id].append(dcm_img_array)
-                elif dtype == 'dcm':
+                elif return_type == 'dcm':
                     dcm_img.pixel_array = dcm_img_array
                     dcm_img_arrays[patient_id].append(dcm_img)
-                elif dtype is None:
+                elif return_type is None:
                     pass
 
+                # Saving the processed files if requested
                 if save_folder:
                     if not os.path.isdir(save_folder):
                         os.mkdir(save_folder)
-                    if 'clustering' in save_folder:
 
-                        new_dcm_img_path = os.path.join(save_folder, f'{i}-{j}.npy')
+                    if 'clustering' in save_folder:  # Deprecated.
+                        new_dcm_img_path = os.path.join(save_folder, f'{patient_id}-{j}.npy')
                     else:
-
                         patient_folder = os.path.join(save_folder, patient_id)
                         if not os.path.isdir(patient_folder):
                             os.mkdir(patient_folder)
+
                         new_dcm_img_path = os.path.join(patient_folder, f'{j}.npy')
 
                     dcm_img_array = Image.fromarray(dcm_img_array)
@@ -101,12 +114,14 @@ def get_dcm_uh(dir_path, num=3, save_folder=None, dtype=None, max_dcms=120):
                     dcm_img_array = dcm_img_array.resize(size)
                     dcm_img_array = np.array(dcm_img_array)
 
-                    np.save(new_dcm_img_path, dcm_img_array)
+                    final_array = np.array([dcm_img_array, j])
+
+                    np.save(new_dcm_img_path, final_array)
 
         except RuntimeError as err:
             print(f'Runtime error on patient {patient_id}:\n{err}')
 
-        print(f'Patient {patient_id} - done. {num - i} patients left.')
+        print(f'Patient {patient_id} - done. {num - i - 1} patients left.')
     return dcm_img_arrays
 
 
@@ -122,9 +137,9 @@ for patient_dir in os.listdir(absolute_dicom_train_path):
     nums_of_dcms.append(num_of_dcms)
 # ==================================#
 # Get data in HUs + save
-# save_folder_path = os.path.join(project_dir, 'data/processed/train')
-save_folder_path = os.path.join(project_dir, 'data/clustering/train')
-get_dcm_uh(absolute_dicom_train_path, save_folder=save_folder_path, num=200, dtype=None, max_dcms=200)
+save_folder_path = os.path.join(project_dir, 'data/processed/train')
+# save_folder_path = os.path.join(project_dir, 'data/clustering/train')
+# get_dcm_uh(absolute_dicom_train_path, save_folder=save_folder_path, num=200, return_type=None)
 
 
 # ==================================#
@@ -223,23 +238,25 @@ processed_csv_df = processSex(processed_csv_df)
 processed_csv_df.drop('index', axis=1, inplace=True)
 
 # To save:
-# processed_csv_df.to_csv(project_dir + '/data/processed/train.csv', index=False)
+processed_csv_df.to_csv(project_dir + '/data/processed/train.csv', index=False)
 # ==================================#
 # Hist the number of records for a person in processed dataset
-patient_ids = processed_csv_df['Patient'].unique()
-records_n = []
 
-for ID in patient_ids:
-    records_n.append(len(processed_csv_df[processed_csv_df['Patient'] == ID]))
+# patient_ids = processed_csv_df['Patient'].unique()
+# records_n = []
+#
+# for ID in patient_ids:
+#     records_n.append(len(processed_csv_df[processed_csv_df['Patient'] == ID]))
 
 # plt.hist(records_n, bins=10)
 # ==================================#
 # Plot the FVC and weeks graphs
-weeks_x = []
-FVC_y = []
-for ID in patient_ids:
-    weeks_x.append(processed_csv_df.loc[processed_csv_df['Patient'] == ID, 'Weeks'])
-    FVC_y.append(processed_csv_df.loc[processed_csv_df['Patient'] == ID, 'FVC'])
+
+# weeks_x = []
+# FVC_y = []
+# for ID in patient_ids:
+#     weeks_x.append(processed_csv_df.loc[processed_csv_df['Patient'] == ID, 'Weeks'])
+#     FVC_y.append(processed_csv_df.loc[processed_csv_df['Patient'] == ID, 'FVC'])
 
 
 # plt.figure(figsize=[14,14])
