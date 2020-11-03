@@ -12,7 +12,7 @@ np.random.seed(4)
 gpus = tf.config.experimental.list_physical_devices("GPU")
 tf.config.experimental.set_memory_growth(gpus[0], True)
 
-window = [-1024, -769]
+window = [-100, 155]
 
 
 # ==================================#
@@ -88,8 +88,8 @@ def fit_model(model, train_gen, val_gen, samples, epochs=5, train_callbacks=None
 def training_loop(autoencoder):
     train_samples = [0, 100]
     val_samples = [0, 2000]
-    log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    checkpoint_filepath = f'modeling/tmp/clustering_checkpoint3.h5'
+    log_dir = "logs/clustering_fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    checkpoint_filepath = f'saved_models/clustering/clustering_checkpoint3.h5'
 
     train_callbacks = [
         callbacks.ReduceLROnPlateau(
@@ -112,19 +112,18 @@ def training_loop(autoencoder):
             histogram_freq=1,
         ),
         BatchLoss(),
-        # RestoreDefaults(),
     ]
 
     gen = get_data(nums=train_samples, window=window, full_shuffle=True)
-    val_datagen = get_data(nums=val_samples, window=window, full_shuffle=True)
+    val_gen = get_data(nums=val_samples, window=window, full_shuffle=True)
 
-    train_history = fit_model(autoencoder, gen, val_datagen, train_samples, 15, train_callbacks).history
+    train_history = fit_model(autoencoder, gen, val_gen, train_samples, 15, train_callbacks).history
 
     return train_history
 
 
 autoencoder, encoder, decoder = clustering_autoencoder()
-# training_loop(autoencoder)
+training_loop(autoencoder)
 
 
 # ==================================#
@@ -134,7 +133,7 @@ def plot_example():
 
     x1 = next(gen)
 
-    # autoencoder = keras.models.load_model('modeling/tmp/clustering_checkpoint3.h5')
+    # autoencoder = keras.models.load_model('modeling/saved_models/clustering/clustering_checkpoint3.h5')
     #
     # x1 = np.reshape(x1, newshape=(1, 512, 512, 1))
     #
@@ -143,11 +142,11 @@ def plot_example():
     # decoded1 = np.reshape(decoded1, newshape=(512, 512))
     # plt.figure()
     # plt.subplot(121)
-    # plt.imshow(x1)
+    # plt.imshow(x1, plt.cm.bone)
     # plt.subplot(122)
-    # plt.imshow(decoded1)
+    # plt.imshow(decoded1, plt.cm.bone)
 
-    autoencoder = keras.models.load_model('modeling/tmp/clustering_checkpoint3.h5')
+    autoencoder = keras.models.load_model('modeling/saved_models/clustering/best_clustering_autoencoder.h5')
 
     x1 = np.reshape(x1, newshape=(1, 512, 512, 1))
 
@@ -156,11 +155,12 @@ def plot_example():
     decoded1 = np.reshape(decoded1, newshape=(512, 512))
     plt.figure()
     plt.subplot(121)
-    plt.imshow(x1)
+    plt.imshow(x1, plt.cm.bone)
     plt.subplot(122)
-    plt.imshow(decoded1)
+    plt.imshow(decoded1, plt.cm.bone)
 
 
+plot_example()
 plot_example()
 
 
@@ -176,7 +176,7 @@ plot_example()
 
 # ==================================#
 # K-means
-autoencoder = keras.models.load_model('modeling/tmp/clustering_checkpoint3.h5')
+autoencoder = keras.models.load_model('modeling/saved_models/clustering/clustering_checkpoint3.h5')
 encoder = autoencoder.layers[1]
 preproc_gen = get_data(nums=[0, 1], window=window, shuffle=False, names=False, iter=False)
 enc1 = encoder.predict(preproc_gen)
@@ -190,10 +190,10 @@ scores = []
 X = encoder.predict(preproc_gen)
 
 for n_clusters in range(10, 11):
-    clustering_model = KMeans(n_clusters=n_clusters)
+    kmeans = KMeans(n_clusters=n_clusters)
 
-    clustering_model.fit(X)
-    scores.append(clustering_model.score(X))
+    kmeans.fit(X)
+    scores.append(kmeans.score(X))
     print(n_clusters, 'clusters done')
 
 # plt.figure()

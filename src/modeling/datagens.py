@@ -49,15 +49,9 @@ class DcmDataGenerator(keras.utils.Sequence):
         patient_ID = self.list_IDs[index]
 
         # Generate data
-        X_dcm, X_num = self._generate_X(patient_ID)
+        X_dcm = self._generate_X(patient_ID)
 
-        return X_dcm, X_num
-
-    def _generate_X_num(self, patient_ID):
-        """Generates order number of patient's images
-        :param patient_ID: ID of the patient
-        :return: order number of patient's images
-        """
+        return X_dcm, np.array([1, ])
 
     def _generate_X(self, patient_ID):
         """Generates data containing patient's images
@@ -66,24 +60,27 @@ class DcmDataGenerator(keras.utils.Sequence):
         """
         # Initialization
         X_dcm = np.empty((1, *self.dim), dtype=np.float32)
-        X_num = np.empty((1, self.dim[0]), dtype=np.float32)
 
-        dcm_names = os.listdir(path=os.path.join(self.images_path, patient_ID))
+        patient_path = os.path.join(self.images_path, patient_ID)
+        dcm_names = np.array([dcm_name[:-4] for dcm_name in os.listdir(patient_path)], dtype=int)
+        dcm_names = sorted(list(dcm_names))
+
+        patient_dcm_paths = [f'{self.images_path}/{patient_ID}/{dcm_num}.npy' for dcm_num in dcm_names]
 
         # Generate data
-        for j, dcm_name in enumerate(dcm_names):
-            X_dcm[0, j], X_num[0] = self._load_dcm_num(os.path.join(self.images_path, patient_ID, dcm_name))
+        for j, dcm_path in enumerate(patient_dcm_paths):
+            X_dcm[0, j] = self._load_dcm(dcm_path)
 
         X_dcm = np.moveaxis(X_dcm, 1, -1)
 
-        return X_dcm, X_num
+        return X_dcm
 
-    def _load_dcm_num(self, image_path):
+    def _load_dcm(self, image_path):
         """Load grayscale image
         :param image_path: path to image to load
         :return: loaded image
         """
-        img, num = np.load(image_path, allow_pickle=True)
+        img = np.load(image_path, allow_pickle=True)
 
         if self.window:
             lb = self.window[0]
@@ -92,7 +89,7 @@ class DcmDataGenerator(keras.utils.Sequence):
             img[img > ub] = ub
             img = (img - lb) / (ub - lb)
 
-        return img, num
+        return img
 
 
 class CsvDataGenerator(keras.utils.Sequence):
@@ -158,9 +155,6 @@ class CsvDataGenerator(keras.utils.Sequence):
         # Generate data
         X[0] = self._load_X(self.csv_path, patient_ID)
 
-        if self.to_normalize:
-            X = (X - (-5)) / (4916 - (-5))
-
         return X
 
     def _load_X(self, csv_path, patient_ID):
@@ -172,8 +166,14 @@ class CsvDataGenerator(keras.utils.Sequence):
         patient = patients_df[patients_df['Patient'] == patient_ID]
         patient.reset_index(inplace=True)
         X_columns = ['Weeks', 'FVC', 'Age', 'Ex-smoker', 'Never smoked', 'Currently smokes', 'Sex_n']
+        X_patient = patient.loc[0, X_columns]
 
-        X_patient = patient.loc[0, X_columns].to_numpy()
+        if self.to_normalize:
+            X_patient['Age'] = (X_patient['Age'] - 67.18850871530019) / 7.055116199848975
+            X_patient['FVC'] = (X_patient['FVC'] - 2690.479018721756) / 832.5021066817238
+            X_patient['Weeks'] = (X_patient['Weeks'] - 31.861846352485475) / 23.265510111399017
+
+        X_patient = X_patient.to_numpy()
 
         return X_patient
 
@@ -200,7 +200,6 @@ class CsvDataGenerator(keras.utils.Sequence):
         weeks_FVC = patient.loc[1:, ['Weeks', 'FVC']]
         weeks_FVC = weeks_FVC[~weeks_FVC.duplicated(['Weeks'])]
 
-        # weeks_FVC.drop()
         weeks_FVC = self.pad_y(weeks_FVC)
         weeks_FVC = weeks_FVC.to_numpy()
 
@@ -215,13 +214,14 @@ class CsvDataGenerator(keras.utils.Sequence):
         csv_df.sort_values('Weeks', inplace=True)
         csv_df.drop(columns='Weeks', inplace=True)
         if self.to_normalize:
-            csv_df.loc[:, 'FVC'] = (csv_df.loc[:, 'FVC'] - (-5)) / (4916 - (-5))
+            csv_df.loc[:, 'FVC'] = (csv_df.loc[:, 'FVC'] - 2690.479018721756) / 832.5021066817238
+        csv_df.reset_index(drop=True, inplace=True)
         return csv_df
 
 
 # ==================================#
 # Creating datagen
-def _merge_datagens(csv_gen, dcm_gen, shuffle=True):
+def _merge_datagens(csv_gen, dcm_gen, shuffle=True, is_patient_record=True):
     seed = 0
     while True:
         csv_flow = csv_gen.flow(seed)
@@ -232,10 +232,13 @@ def _merge_datagens(csv_gen, dcm_gen, shuffle=True):
             dcm_data = next(dcm_flow)
             csv_X = csv_data[0]
             dcm_X_img = dcm_data[0]
-            dcm_X_num = dcm_data[1]
             csv_y = csv_data[1][:, :, 0]
             csv_is_patient_record = csv_data[1][:, :, 1]
-            yield [csv_X, dcm_X_img, dcm_X_num], csv_y, csv_is_patient_record
+
+            if is_patient_record:
+                yield [csv_X, dcm_X_img], csv_y, csv_is_patient_record
+            else:
+                yield [csv_X, dcm_X_img], csv_y
 
             patient_num += 1
             if patient_num > 175:
@@ -244,12 +247,12 @@ def _merge_datagens(csv_gen, dcm_gen, shuffle=True):
             seed += 1
 
 
-def create_datagen(shuffle=True):
-    """Returns generator that yields [csv_X, dcm_X_img, dcm_X_num], csv_y, csv_is_patient_record"""
+def create_datagen(shuffle=True, window=None, is_patient_record=True):
+    """Returns generator that yields [csv_X, dcm_X_img], csv_y, csv_is_patient_record"""
     csv_datagen = CsvDataGenerator('../../data/processed/train.csv', to_normalize=True)
-    dcm_datagen = DcmDataGenerator('../../data/processed/train')
+    dcm_datagen = DcmDataGenerator('../../data/processed/train', window=window)
 
-    merged_gen = _merge_datagens(csv_datagen, dcm_datagen, shuffle=shuffle)
+    merged_gen = _merge_datagens(csv_datagen, dcm_datagen, shuffle=shuffle, is_patient_record=is_patient_record)
 
     return merged_gen
 
