@@ -5,6 +5,8 @@ data/
 
 # Logs
 src/modeling/logs/
-src/modeling/tmp/
 notebooks/.ipynb_checkpoints/
 src/modeling/__pycache__/
+
+# Saved models
+src/modeling/saved_models/
