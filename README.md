@@ -18,7 +18,7 @@ the clinical development of novel treatments.
 
 ## Result
 After many attempts I keep getting some issues with my loss function which is probably due 
-to the fact that I freeze a part of layers after every batch and it causes some internal
-conflicts in backpropagating process and results in poor learning. Other than that, the
+to the fact that I freeze a part of layers after every batch, and it causes some internal
+conflicts in backpropagation process and results in poor learning. Other than that, the
 model is strongly suitable for such computer vision task and after fixing the loss-function
 issue it will be ready to perform high-accuracy predictions.
