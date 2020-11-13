@@ -1,13 +1,12 @@
 # Datasets
 data/
 
-# Pycharm IDE stuff
 .idea/
-src/modeling/__pycache__/
 
-# Logs, notebook checkpoints
+# Logs
 src/modeling/logs/
 notebooks/.ipynb_checkpoints/
+src/modeling/__pycache__/
 
 # Saved models
 src/modeling/saved_models/
