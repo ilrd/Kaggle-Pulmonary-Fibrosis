@@ -85,7 +85,6 @@ def train(model, epochs=5, steps_per_epoch=1, shuffle=True):
         train_step = train_step_wrapper(optimizer=optimizer)
 
         for current_batch in range(steps_per_epoch):
-
             begin = perf_counter()
             batch_X, batch_y, is_patient_record = next(datagen_tissue)
             loss_ = float(train_step(model, batch_X, batch_y, is_patient_record))
@@ -113,9 +112,9 @@ def train(model, epochs=5, steps_per_epoch=1, shuffle=True):
 model = DcmCsvModel()
 fit_history = train(model, 30, steps_per_epoch=176, shuffle=True)
 
-
 # Saving the model
 model.save('saved_models/saved_model', save_format='tf')
+
 
 # Plot the predicted FVC values for the weeks, as well as true values and a common-sense baseline
 def plot_prediction(model):
