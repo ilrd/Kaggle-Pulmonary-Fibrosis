@@ -32,7 +32,6 @@ class DcmCsvModel(Model):
 
         self.out = Dense(146)
 
-
     def call(self, inputs, **kwargs):
         csv_inp, dcm_inp = inputs
 
@@ -63,39 +62,43 @@ class DcmCsvModel(Model):
         return self.out(conc_x)
 
 
+def SSIMLoss(y_true, y_pred):
+    return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, 1.0))
+
+
 def clustering_autoencoder():  # For clustering dcm images
-    encoded_dims = 1024
+    encoded_dims = 256
 
     inputs = Input(shape=(512, 512, 1))
-    x = Conv2D(16, (3, 3), activation='relu', padding='same')(inputs)
+    x = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = MaxPool2D(8, 8)(x)
+
     x = Conv2D(32, (3, 3), activation='relu', padding='same')(x)
+    x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
     x = MaxPool2D(4, 4)(x)
 
-    x = SeparableConv2D(32, (3, 3), activation='relu', padding='same')(x)
-    x = Conv2D(32, (2, 2), activation='relu', padding='same')(x)
-    x = MaxPool2D(4, 4)(x)
-
-    x = Conv2D(16, (2, 2), activation='relu', padding='same')(x)
-    x = Conv2D(4, (2, 2), activation='relu', padding='same')(x)
-    x = Conv2D(1, (2, 2), padding='same')(x)
+    x = Conv2D(16, (5, 5), activation='relu', padding='same')(x)
+    x = Conv2D(4, (7, 7), activation='relu', padding='same')(x)
+    x = Conv2D(1, (9, 9), activation='relu', padding='same')(x)
     x = Flatten()(x)
-    encoded = Dense(encoded_dims)(x)
+    encoded = Dense(encoded_dims, activation='relu')(x)
 
     encoder = Model(inputs=inputs, outputs=encoded)
 
     encoded_inputs = Input(shape=(encoded_dims,))
-    x = Dense(encoded_dims)(encoded_inputs)
-    x = Reshape((32, 32, 1))(x)
-    x = Conv2D(4, (2, 2), padding='same')(x)
-    x = Conv2D(16, (2, 2), activation='relu', padding='same')(x)
+    x = Dense(encoded_dims, activation='relu')(encoded_inputs)
+    x = Reshape((16, 16, 1))(x)
+    x = Conv2D(4, (5, 5), activation='relu', padding='same')(x)
+    x = Conv2D(16, (3, 3), activation='relu', padding='same')(x)
     x = UpSampling2D(4)(x)
 
+    x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
     x = Conv2D(32, (3, 3), activation='relu', padding='same')(x)
-    x = SeparableConv2D(32, (3, 3), activation='relu', padding='same')(x)
-    x = UpSampling2D(4)(x)
+    x = UpSampling2D(8)(x)
 
     x = Conv2D(32, (3, 3), activation='relu', padding='same')(x)
-    x = Conv2D(32, (3, 3), padding='same')(x)
+    x = Conv2D(16, (3, 3), activation='relu', padding='same')(x)
     decoded = Conv2D(1, (3, 3), activation='sigmoid', padding='same')(x)
 
     decoder = Model(inputs=encoded_inputs, outputs=decoded)
@@ -105,6 +108,6 @@ def clustering_autoencoder():  # For clustering dcm images
 
     autoencoder = Model(inputs=inputs, outputs=x)
 
-    autoencoder.compile(optimizer=keras.optimizers.Adam(lr=0.001), loss='binary_crossentropy')
+    autoencoder.compile(optimizer=keras.optimizers.Adam(lr=0.003), loss=SSIMLoss)
 
-    return autoencoder, encoder, decoder
+    return autoencoder
