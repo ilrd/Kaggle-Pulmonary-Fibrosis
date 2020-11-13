@@ -1,6 +1,6 @@
 # Pulmonary Fibrosis
 
-<img align="right" vspace="5" hspace="5" src="./img/ct_scan.jpeg" width="180">
+<img align="right" vspace="5" hspace="5" src="./img/ct_scan.jpeg" width="150">
 This project's goal is to predict a patient's severity of decline in lung function based on 
 their CT scans of lungs. With good accuracy of prediction, patients and their families would
 better understand their prognosis when they are first diagnosed with this incurable lung disease.
