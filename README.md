@@ -8,6 +8,8 @@ Improved severity detection would also positively impact treatment trial design 
 the clinical development of novel treatments.
 
 ## Methods and tools
+<img align="right" src="./img/scree_plot.png" width="380">
+
 * Custom data generators, loss functions, training loops - Tensorflow, Keras backend
 * Transfer learning - EfficientNetB5
 * Clustering - autoencoder, K-Means, sklearn
